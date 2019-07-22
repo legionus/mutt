@@ -37,6 +37,10 @@ COLOR_LINE *ColorHdrList = NULL;
 COLOR_LINE *ColorBodyList = NULL;
 COLOR_LINE *ColorIndexList = NULL;
 
+COLOR_GROUP *ColorGroupList = NULL;
+COLOR_GROUP_STACK *ColorGroupHeaderStack = NULL;
+COLOR_GROUP_STACK *ColorGroupBodyStack = NULL;
+
 /* local to this file */
 static int ColorQuoteSize;
 
@@ -113,6 +117,13 @@ static const struct mapping_t ComposeFields[] =
   { "security_sign",        MT_COLOR_COMPOSE_SECURITY_SIGN },
   { "security_both",        MT_COLOR_COMPOSE_SECURITY_BOTH },
   { "security_none",        MT_COLOR_COMPOSE_SECURITY_NONE },
+  { NULL,                   0 }
+};
+
+static const struct mapping_t ColorGroupFields[] =
+{
+  { "start",                MT_COLOR_GROUP_START },
+  { "end",                  MT_COLOR_GROUP_END },
   { NULL,                   0 }
 };
 
@@ -532,7 +543,7 @@ static int _mutt_parse_uncolor (BUFFER *buf, BUFFER *s, BUFFER *err, short parse
 }
 
 
-static int
+static COLOR_LINE *
 add_pattern (COLOR_LINE **top, const char *s, int sensitive,
 	     int fg, int bg, int attr, BUFFER *err,
 	     int is_index)
@@ -593,14 +604,14 @@ add_pattern (COLOR_LINE **top, const char *s, int sensitive,
       if (tmp->color_pattern == NULL)
       {
 	mutt_free_color_line(&tmp, 1);
-	return -1;
+	return NULL;
       }
     }
     else if ((r = REGCOMP (&tmp->rx, s, (sensitive ? mutt_which_case (s) : REG_ICASE))) != 0)
     {
       regerror (r, &tmp->rx, err->data, err->dsize);
       mutt_free_color_line(&tmp, 1);
-      return (-1);
+      return NULL;
     }
     tmp->next = *top;
     tmp->pattern = safe_strdup (s);
@@ -625,7 +636,7 @@ add_pattern (COLOR_LINE **top, const char *s, int sensitive,
       Context->hdrs[i]->pair = 0;
   }
 
-  return 0;
+  return tmp;
 }
 
 static int
@@ -791,6 +802,7 @@ _mutt_parse_color (BUFFER *buf, BUFFER *s, BUFFER *err,
 {
   int object = 0, attr = 0, fg = 0, bg = 0, q_level = 0;
   int r = 0;
+  COLOR_LINE *line;
 
   if (parse_object(buf, s, &object, &q_level, err) == -1)
     return -1;
@@ -836,12 +848,22 @@ _mutt_parse_color (BUFFER *buf, BUFFER *s, BUFFER *err,
 #endif
 
   if (object == MT_COLOR_HEADER)
-    r = add_pattern (&ColorHdrList, buf->data, 0, fg, bg, attr, err,0);
+  {
+    line = add_pattern (&ColorHdrList, buf->data, 0, fg, bg, attr, err,0);
+    if (line && ColorGroupHeaderStack)
+      line->group = ColorGroupHeaderStack->group;
+    r = line ? 0 : -1;
+  }
   else if (object == MT_COLOR_BODY)
-    r = add_pattern (&ColorBodyList, buf->data, 1, fg, bg, attr, err, 0);
+  {
+    line = add_pattern (&ColorBodyList, buf->data, 1, fg, bg, attr, err, 0);
+    if (line && ColorGroupBodyStack)
+      line->group = ColorGroupBodyStack->group;
+    r = line ? 0 : -1;
+  }
   else if (object == MT_COLOR_INDEX)
   {
-    r = add_pattern (&ColorIndexList, buf->data, 1, fg, bg, attr, err, 1);
+    r = add_pattern (&ColorIndexList, buf->data, 1, fg, bg, attr, err, 1) ? 0 : -1;
     mutt_set_menu_redraw_full (MENU_MAIN);
   }
   else if (object == MT_COLOR_QUOTED)
@@ -901,4 +923,130 @@ int mutt_parse_mono(BUFFER *buff, BUFFER *s, union pointer_long_t udata, BUFFER 
 #endif
 
   return _mutt_parse_color(buff, s, err, parse_attr_spec, dry_run);
+}
+
+#ifdef HAVE_COLOR
+/* usage: color-group { header | body } { start | end } <regexp>
+ */
+int mutt_parse_color_group(BUFFER *buf, BUFFER *s, union pointer_long_t udata, BUFFER *err)
+{
+	int target = 0;
+	int object = 0;
+	int r = 0;
+	regex_t *rx;
+	COLOR_GROUP *grp;
+	COLOR_GROUP_STACK **stack, *newStack;
+
+	if(!MoreArgs(s))
+	{
+		strfcpy(err->data, _("(0) Missing arguments."), err->dsize);
+		return -1;
+	}
+
+	mutt_extract_token(buf, s, 0);
+
+	if ((target = mutt_getvaluebyname(buf->data, Fields)) == -1)
+	{
+		snprintf(err->data, err->dsize, _("%s: no such object"), buf->data);
+		return -1;
+	}
+
+	if (target == MT_COLOR_HEADER)
+	{
+		stack = &ColorGroupHeaderStack;
+	}
+	else if (target == MT_COLOR_BODY)
+	{
+		stack = &ColorGroupBodyStack;
+	}
+	else
+	{
+		strfcpy(err->data, _("Target must be 'header' or 'body'."), err->dsize);
+		return -1;
+	}
+
+	mutt_extract_token(buf, s, 0);
+
+	if ((object = mutt_getvaluebyname(buf->data, ColorGroupFields)) == -1)
+	{
+		snprintf(err->data, err->dsize, _("%s: no such object"), buf->data);
+		return -1;
+	}
+
+	if (!MoreArgs(s))
+	{
+		strfcpy(err->data, _("(1) Missing arguments."), err->dsize);
+		return -1;
+	}
+
+	mutt_extract_token(buf, s, 0);
+
+	if (MoreArgs(s))
+	{
+		strfcpy (err->data, _("too many arguments"), err->dsize);
+		return -1;
+	}
+
+	if (option(OPTNOCURSES) || !has_colors())
+		return 0;
+
+	rx = safe_calloc(1, sizeof(regex_t));
+
+	if ((r = REGCOMP(rx, buf->data, mutt_which_case(buf->data))) != 0)
+	{
+		regerror(r, rx, err->data, err->dsize);
+		FREE(rx);
+		return -1;
+	}
+
+	if (object == MT_COLOR_GROUP_END)
+	{
+		if (!*stack)
+		{
+			strfcpy(err->data, "Unexpected group ending.", err->dsize);
+			regfree(rx);
+			FREE(rx);
+			return -1;
+		}
+
+		(*stack)->group->pattern_end = safe_strdup(buf->data);
+		(*stack)->group->rx_end = rx;
+
+		newStack = (*stack)->next;
+		FREE(stack);
+		*stack = newStack;
+
+		return 0;
+	}
+
+	grp = safe_calloc(1, sizeof(COLOR_GROUP));
+	grp->pattern_start = safe_strdup(buf->data);
+	grp->rx_start = rx;
+	grp->next = ColorGroupList;
+
+	ColorGroupList = grp;
+
+	newStack = safe_calloc(1, sizeof(COLOR_GROUP_STACK));
+	newStack->group = grp;
+	newStack->next = *stack;
+
+	*stack = newStack;
+
+	return 0;
+}
+#endif
+
+void mutt_free_color_group_stack(COLOR_GROUP_STACK **top)
+{
+	COLOR_GROUP_STACK *t, *e;
+	if (!top)
+		return;
+	t = *top;
+	while (t)
+	{
+		e = t->next;
+		FREE(&t);
+		t = e;
+	}
+	*top = NULL;
 }

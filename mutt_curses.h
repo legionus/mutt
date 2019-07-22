@@ -143,12 +143,33 @@ enum
   MT_COLOR_MAX
 };
 
+#define MT_COLOR_GROUP_START 1
+#define MT_COLOR_GROUP_END   2
+
+typedef struct color_group
+{
+	char *pattern_start;
+	char *pattern_end;
+	regex_t *rx_start;
+	regex_t *rx_end;
+	struct color_group *next;
+} COLOR_GROUP;
+
+typedef struct color_group_stack
+{
+	COLOR_GROUP *group;
+	struct color_group_stack *next;
+} COLOR_GROUP_STACK;
+
+void mutt_free_color_group_stack(COLOR_GROUP_STACK **top);
+
 typedef struct color_line
 {
   regex_t rx;
   char *pattern;
   pattern_t *color_pattern; /* compiled pattern to speed up index color
                                calculation */
+  COLOR_GROUP *group;
   short fg;
   short bg;
   int pair;
@@ -226,6 +247,9 @@ extern int ColorDefs[];
 extern COLOR_LINE *ColorHdrList;
 extern COLOR_LINE *ColorBodyList;
 extern COLOR_LINE *ColorIndexList;
+extern COLOR_GROUP *ColorGroupList;
+extern COLOR_GROUP_STACK *ColorGroupHeaderStack;
+extern COLOR_GROUP_STACK *ColorGroupBodyStack;
 
 void ci_init_color (void);
 void ci_start_color (void);

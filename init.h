@@ -4382,6 +4382,7 @@ const struct command_t Commands[] = {
 #ifdef HAVE_COLOR
   { "color",		mutt_parse_color,	{.l=0} },
   { "uncolor",		mutt_parse_uncolor,	{.l=0} },
+  { "color-group",	mutt_parse_color_group,	{.l=0} },
 #endif
   { "echo",		parse_echo,		{.l=0} },
   { "exec",		mutt_parse_exec,	{.l=0} },

@@ -358,6 +358,7 @@ int mutt_parse_bind (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);
 int mutt_parse_exec (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);
 int mutt_parse_color (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);
 int mutt_parse_uncolor (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);
+int mutt_parse_color_group (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);
 int mutt_parse_hook (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);
 int mutt_parse_idxfmt_hook (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);
 int mutt_parse_macro (BUFFER *, BUFFER *, union pointer_long_t, BUFFER *);

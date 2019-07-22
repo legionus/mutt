@@ -3715,6 +3715,9 @@ void mutt_init (int skip_sys_rc, LIST *commands)
   mutt_read_histfile ();
 
   FREE (&err.data);
+
+  mutt_free_color_group_stack(&ColorGroupHeaderStack);
+  mutt_free_color_group_stack(&ColorGroupBodyStack);
 }
 
 int mutt_get_hook_type (const char *name)
